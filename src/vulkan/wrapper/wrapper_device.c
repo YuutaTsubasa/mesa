@@ -4698,7 +4698,7 @@ wrapper_QueueSubmit(VkQueue _queue, uint32_t submitCount,
    if (queue->device->query_reset_queue && vk_device_is_lost(&queue->device->vk))
       return VK_ERROR_DEVICE_LOST;
    const bool serialise = wrapper_query_reset_owns_queue(queue);
-   VkSubmitInfo wrapper_submits[submitCount];
+   VkSubmitInfo wrapper_submits[MAX2(submitCount, 1)];
    VkCommandBuffer *command_buffers;
    VkResult result;
 
@@ -4719,10 +4719,18 @@ wrapper_QueueSubmit(VkQueue _queue, uint32_t submitCount,
       simple_mtx_lock(&queue->device->query_reset_mutex);
    wrapper_bcn_gpu_submit(queue);
    wrapper_bcn_hq_flush(queue);
+   VkCommandBuffer fill = wrapper_fill_cb(queue);
+   VkSubmitInfo fill_submit = {
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+   };
+   if (fill && submitCount == 0 && fence != VK_NULL_HANDLE) {
+      pSubmits = &fill_submit;
+      submitCount = 1;
+   }
    for (int i = 0; i < submitCount; i++) {
       const VkSubmitInfo *submit_info = &pSubmits[i];
       command_buffers = malloc(sizeof(VkCommandBuffer) *
-         submit_info->commandBufferCount);
+         MAX2(submit_info->commandBufferCount, 1));
       for (int j = 0; j < submit_info->commandBufferCount; j++) {
          VK_FROM_HANDLE(wrapper_command_buffer, wcb,
                         submit_info->pCommandBuffers[j]);
@@ -4734,6 +4742,10 @@ wrapper_QueueSubmit(VkQueue _queue, uint32_t submitCount,
       }
       wrapper_submits[i] = pSubmits[i];
       wrapper_submits[i].pCommandBuffers = command_buffers;
+      if (fill && submit_info->commandBufferCount == 0) {
+         command_buffers[0] = fill;
+         wrapper_submits[i].commandBufferCount = 1;
+      }
       chain_mem[i] = wrapper_submit_chain1(queue->device, &wrapper_submits[i]);
    }
 
@@ -4764,7 +4776,7 @@ wrapper_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
    if (queue->device->query_reset_queue && vk_device_is_lost(&queue->device->vk))
       return VK_ERROR_DEVICE_LOST;
    const bool serialise = wrapper_query_reset_owns_queue(queue);
-   VkSubmitInfo2 wrapper_submits[submitCount];
+   VkSubmitInfo2 wrapper_submits[MAX2(submitCount, 1)];
    VkCommandBufferSubmitInfo *command_buffers;
    VkResult result;
 
@@ -4785,10 +4797,18 @@ wrapper_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
       simple_mtx_lock(&queue->device->query_reset_mutex);
    wrapper_bcn_gpu_submit(queue);
    wrapper_bcn_hq_flush(queue);
+   VkCommandBuffer fill = wrapper_fill_cb(queue);
+   VkSubmitInfo2 fill_submit = {
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+   };
+   if (fill && submitCount == 0 && fence != VK_NULL_HANDLE) {
+      pSubmits = &fill_submit;
+      submitCount = 1;
+   }
    for (int i = 0; i < submitCount; i++) {
       const VkSubmitInfo2 *submit_info = &pSubmits[i];
       command_buffers = malloc(sizeof(VkCommandBufferSubmitInfo) *
-         submit_info->commandBufferInfoCount);
+         MAX2(submit_info->commandBufferInfoCount, 1));
       for (int j = 0; j < submit_info->commandBufferInfoCount; j++) {
          VK_FROM_HANDLE(wrapper_command_buffer, wcb,
                         submit_info->pCommandBufferInfos[j].commandBuffer);
@@ -4801,6 +4821,13 @@ wrapper_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
       }
       wrapper_submits[i] = pSubmits[i];
       wrapper_submits[i].pCommandBufferInfos = command_buffers;
+      if (fill && submit_info->commandBufferInfoCount == 0) {
+         command_buffers[0] = (VkCommandBufferSubmitInfo) {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+            .commandBuffer = fill,
+         };
+         wrapper_submits[i].commandBufferInfoCount = 1;
+      }
       hunt_chain[i] = wrapper_submit_chain2(queue->device, &wrapper_submits[i]);
    }
 

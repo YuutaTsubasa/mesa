@@ -205,6 +205,8 @@ struct wrapper_device {
    bool query_reset_shared_queue;        /* no spare queue: shares the app's */
    VkSemaphore hunt_chain;               /* WRAPPER_CHAIN_SUBMITS timeline */
    uint64_t hunt_chain_value;
+   VkCommandPool fill_pool[8];           /* WRAPPER_FILL_EMPTY_SUBMITS */
+   VkCommandBuffer fill_cb[8];           /* per queue family */
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_device, vk.base, VkDevice,
@@ -546,5 +548,6 @@ void wrapper_submit_chain_lock(void);
 void wrapper_submit_chain_unlock(struct wrapper_queue *queue, VkResult result);
 void *wrapper_submit_chain1(struct wrapper_device *device, VkSubmitInfo *submit);
 void *wrapper_submit_chain2(struct wrapper_device *device, VkSubmitInfo2 *submit);
+VkCommandBuffer wrapper_fill_cb(struct wrapper_queue *queue);
 
 #endif

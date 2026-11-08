@@ -35,6 +35,75 @@ static simple_mtx_t chain_mtx = SIMPLE_MTX_INITIALIZER;
  * is submitted or the call returns.  Unlike chaining, this also keeps the
  * application from reusing memory the GPU may still be writing when the
  * driver reports completion early. */
+static int fill_enabled = -1;
+static simple_mtx_t fill_mtx = SIMPLE_MTX_INITIALIZER;
+
+/* WRAPPER_FILL_EMPTY_SUBMITS=1: a batch with no command buffers (a bare
+ * semaphore/fence signal, which is how vkd3d-proton implements
+ * ID3D12CommandQueue::Signal and its own fence waits) gets one wrapper-owned
+ * command buffer holding a full memory barrier.  Tests whether the Mali
+ * driver signals empty batches before earlier work on the queue has
+ * finished writing, which would let the application reuse memory the GPU
+ * is still using. */
+VkCommandBuffer
+wrapper_fill_cb(struct wrapper_queue *queue)
+{
+   if (fill_enabled == -1) {
+      const char *e = getenv("WRAPPER_FILL_EMPTY_SUBMITS");
+      fill_enabled = e && atoi(e);
+      if (fill_enabled)
+         WRAPPER_LOG(info, "WRAPPER_FILL_EMPTY_SUBMITS: empty batches get a barrier");
+   }
+   uint32_t family = queue->vk.queue_family_index;
+   if (!fill_enabled || family >= 8)
+      return VK_NULL_HANDLE;
+
+   struct wrapper_device *device = queue->device;
+   simple_mtx_lock(&fill_mtx);
+   if (!device->fill_cb[family]) {
+      VkCommandPoolCreateInfo cpci = {
+         .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+         .queueFamilyIndex = family,
+      };
+      VkCommandBufferAllocateInfo cbai = {
+         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+         .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+         .commandBufferCount = 1,
+      };
+      VkCommandBufferBeginInfo bi = {
+         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+         .flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
+      };
+      VkMemoryBarrier barrier = {
+         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+         .srcAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
+         .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
+      };
+      VkCommandPool pool = VK_NULL_HANDLE;
+      VkCommandBuffer cb = VK_NULL_HANDLE;
+      if (device->dispatch_table.CreateCommandPool(device->dispatch_handle, &cpci, NULL,
+                                                   &pool) == VK_SUCCESS &&
+          (cbai.commandPool = pool,
+           device->dispatch_table.AllocateCommandBuffers(device->dispatch_handle, &cbai,
+                                                         &cb) == VK_SUCCESS) &&
+          device->dispatch_table.BeginCommandBuffer(cb, &bi) == VK_SUCCESS) {
+         device->dispatch_table.CmdPipelineBarrier(cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                                                   VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
+                                                   1, &barrier, 0, NULL, 0, NULL);
+         if (device->dispatch_table.EndCommandBuffer(cb) == VK_SUCCESS) {
+            device->fill_pool[family] = pool;
+            device->fill_cb[family] = cb;
+            pool = VK_NULL_HANDLE;
+         }
+      }
+      if (pool)
+         device->dispatch_table.DestroyCommandPool(device->dispatch_handle, pool, NULL);
+   }
+   VkCommandBuffer cb = device->fill_cb[family];
+   simple_mtx_unlock(&fill_mtx);
+   return cb;
+}
+
 static bool
 serialize_on(void)
 {
@@ -72,7 +141,13 @@ wrapper_submit_chain_unlock(struct wrapper_queue *queue, VkResult result)
       VkFenceCreateInfo fci = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
       VkFence fence = VK_NULL_HANDLE;
       if (device->dispatch_table.CreateFence(device->dispatch_handle, &fci, NULL, &fence) == VK_SUCCESS) {
-         if (device->dispatch_table.QueueSubmit(queue->dispatch_handle, 0, NULL, fence) == VK_SUCCESS)
+         VkCommandBuffer fill = wrapper_fill_cb(queue);
+         VkSubmitInfo si = {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .commandBufferCount = 1, .pCommandBuffers = &fill,
+         };
+         if (device->dispatch_table.QueueSubmit(queue->dispatch_handle, fill ? 1 : 0,
+                                                fill ? &si : NULL, fence) == VK_SUCCESS)
             device->dispatch_table.WaitForFences(device->dispatch_handle, 1, &fence, VK_TRUE,
                                                  UINT64_MAX);
          device->dispatch_table.DestroyFence(device->dispatch_handle, fence, NULL);
