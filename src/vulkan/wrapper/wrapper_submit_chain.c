@@ -16,6 +16,7 @@
  */
 
 #include "wrapper_private.h"
+#include "wrapper_log.h"
 
 #include <stdlib.h>
 #include <string.h>
