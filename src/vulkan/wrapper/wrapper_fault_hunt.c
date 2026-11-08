@@ -361,63 +361,17 @@ wrapper_fault_hunt_submit_begin(void)
 
 /* Called with the submit lock held, right after the driver accepted the batch.
  * cmdbufs/count are the application's (wrapper) command buffers of the batch. */
-bool
-wrapper_fault_hunt_gpu_chain(void)
+int
+wrapper_fault_hunt_wait_mode(void)
 {
-   return wrapper_fault_hunt_enabled() && hunt_wait == 2;
-}
-
-/* WRAPPER_FAULT_HUNT_WAIT=2: make this batch wait for the previous batch (on
- * any queue) and signal its own completion, so the GPU runs batches strictly
- * one after another without the CPU stalling.  Called with the submit lock
- * held.  Returns memory to free after the submit, or NULL. */
-void *
-wrapper_fault_hunt_chain2(struct wrapper_device *device, VkSubmitInfo2 *submit)
-{
-   if (!wrapper_fault_hunt_gpu_chain())
-      return NULL;
-
-   if (!device->hunt_chain) {
-      VkSemaphoreTypeCreateInfo type = {
-         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
-         .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
-      };
-      VkSemaphoreCreateInfo sci = {
-         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = &type,
-      };
-      if (device->dispatch_table.CreateSemaphore(device->dispatch_handle, &sci, NULL,
-                                                 &device->hunt_chain) != VK_SUCCESS)
-         return NULL;
-      device->hunt_chain_value = 0;
-   }
-
-   uint32_t waits = submit->waitSemaphoreInfoCount, signals = submit->signalSemaphoreInfoCount;
-   VkSemaphoreSubmitInfo *mem = malloc((waits + signals + 2) * sizeof(*mem));
-   if (!mem)
-      return NULL;
-   VkSemaphoreSubmitInfo *w = mem, *sg = mem + waits + 1;
-   memcpy(w, submit->pWaitSemaphoreInfos, waits * sizeof(*w));
-   memcpy(sg, submit->pSignalSemaphoreInfos, signals * sizeof(*sg));
-   w[waits] = (VkSemaphoreSubmitInfo) {
-      .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = device->hunt_chain,
-      .value = device->hunt_chain_value, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-   };
-   sg[signals] = (VkSemaphoreSubmitInfo) {
-      .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = device->hunt_chain,
-      .value = ++device->hunt_chain_value, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-   };
-   submit->pWaitSemaphoreInfos = w;
-   submit->waitSemaphoreInfoCount = waits + 1;
-   submit->pSignalSemaphoreInfos = sg;
-   submit->signalSemaphoreInfoCount = signals + 1;
-   return mem;
+   return wrapper_fault_hunt_enabled() ? hunt_wait : 0;
 }
 
 void
 wrapper_fault_hunt_submit_end(struct wrapper_queue *queue, VkResult submit_result,
-                              struct wrapper_command_buffer *const *cmdbufs, uint32_t count,
-                              bool chained)
+                              struct wrapper_command_buffer *const *cmdbufs, uint32_t count)
 {
+   const bool chained = wrapper_submit_chain_enabled();
    if (!wrapper_fault_hunt_enabled())
       return;
 

@@ -4710,7 +4710,11 @@ wrapper_QueueSubmit(VkQueue _queue, uint32_t submitCount,
    struct wrapper_command_buffer **hunt_cbs =
       hunt ? malloc(MAX2(hunt_total, 1) * sizeof(*hunt_cbs)) : NULL;
 
+   void *chain_mem[MAX2(submitCount, 1)];
+   memset(chain_mem, 0, sizeof(chain_mem));
+
    wrapper_fault_hunt_submit_begin();
+   wrapper_submit_chain_lock();
    if (serialise)
       simple_mtx_lock(&queue->device->query_reset_mutex);
    wrapper_bcn_gpu_submit(queue);
@@ -4730,13 +4734,17 @@ wrapper_QueueSubmit(VkQueue _queue, uint32_t submitCount,
       }
       wrapper_submits[i] = pSubmits[i];
       wrapper_submits[i].pCommandBuffers = command_buffers;
+      chain_mem[i] = wrapper_submit_chain1(queue->device, &wrapper_submits[i]);
    }
 
    result = queue->device->dispatch_table.QueueSubmit(
       queue->dispatch_handle, submitCount, wrapper_submits, fence);
    if (serialise)
       simple_mtx_unlock(&queue->device->query_reset_mutex);
-   wrapper_fault_hunt_submit_end(queue, result, hunt_cbs, hunt_n, false);
+   wrapper_submit_chain_unlock();
+   for (uint32_t i = 0; i < submitCount; i++)
+      free(chain_mem[i]);
+   wrapper_fault_hunt_submit_end(queue, result, hunt_cbs, hunt_n);
    free(hunt_cbs);
 
    if (result == VK_ERROR_DEVICE_LOST)
@@ -4772,6 +4780,7 @@ wrapper_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
    memset(hunt_chain, 0, sizeof(hunt_chain));
 
    wrapper_fault_hunt_submit_begin();
+   wrapper_submit_chain_lock();
    if (serialise)
       simple_mtx_lock(&queue->device->query_reset_mutex);
    wrapper_bcn_gpu_submit(queue);
@@ -4792,7 +4801,7 @@ wrapper_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
       }
       wrapper_submits[i] = pSubmits[i];
       wrapper_submits[i].pCommandBufferInfos = command_buffers;
-      hunt_chain[i] = wrapper_fault_hunt_chain2(queue->device, &wrapper_submits[i]);
+      hunt_chain[i] = wrapper_submit_chain2(queue->device, &wrapper_submits[i]);
    }
 
    if (queue->device->dispatch_table.QueueSubmit2) {
@@ -4950,8 +4959,8 @@ legacy_submit_cleanup:
    }
    if (serialise)
       simple_mtx_unlock(&queue->device->query_reset_mutex);
-   wrapper_fault_hunt_submit_end(queue, result, hunt_cbs, hunt_n,
-                                 wrapper_fault_hunt_gpu_chain());
+   wrapper_submit_chain_unlock();
+   wrapper_fault_hunt_submit_end(queue, result, hunt_cbs, hunt_n);
    free(hunt_cbs);
    for (uint32_t i = 0; i < submitCount; i++)
       free(hunt_chain[i]);
