@@ -255,13 +255,54 @@ wrapper_fault_hunt_begin(struct wrapper_command_buffer *wcb)
 {
    wcb->hunt_count = 0;
    wcb->hunt_overflow = false;
+   wcb->hunt_skip = false;
+}
+
+/* WRAPPER_FAULT_HUNT_SKIP: comma-separated stage hashes (as printed in the
+ * reports).  Draws made while a graphics pipeline with any of those stages is
+ * bound are dropped, to bisect which pipeline faults. */
+#define HUNT_MAX_SKIP 64
+static uint64_t skip_hashes[HUNT_MAX_SKIP];
+static int skip_count = -1;
+
+static bool
+hunt_pipeline_skipped(VkPipeline pipeline)
+{
+   if (skip_count == -1) {
+      skip_count = 0;
+      const char *e = getenv("WRAPPER_FAULT_HUNT_SKIP");
+      while (e && *e && skip_count < HUNT_MAX_SKIP) {
+         char *end;
+         uint64_t h = strtoull(e, &end, 16);
+         if (end == e)
+            break;
+         skip_hashes[skip_count++] = h;
+         e = *end ? end + 1 : end;
+      }
+      if (skip_count)
+         fprintf(stderr, "[FAULT_HUNT] skipping draws of %d shader hash(es)\n", skip_count);
+   }
+   if (!skip_count)
+      return false;
+
+   bool skip = false;
+   simple_mtx_lock(&hunt_mtx);
+   struct hunt_pipeline *hp = _mesa_hash_table_u64_search(pipeline_info, (uint64_t)pipeline);
+   for (uint32_t s = 0; hp && s < hp->stage_count && !skip; s++)
+      for (int i = 0; i < skip_count && !skip; i++)
+         skip = hp->hashes[s] == skip_hashes[i];
+   simple_mtx_unlock(&hunt_mtx);
+   return skip;
 }
 
 void
-wrapper_fault_hunt_bind(struct wrapper_command_buffer *wcb, VkPipeline pipeline)
+wrapper_fault_hunt_bind(struct wrapper_command_buffer *wcb, VkPipelineBindPoint bind_point,
+                        VkPipeline pipeline)
 {
    if (!wrapper_fault_hunt_enabled())
       return;
+   if (bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
+      wcb->hunt_skip = hunt_pipeline_skipped(pipeline);
    for (uint32_t i = 0; i < wcb->hunt_count; i++)
       if (wcb->hunt_pipes[i] == pipeline)
          return;

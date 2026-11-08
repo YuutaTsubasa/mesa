@@ -352,6 +352,7 @@ struct wrapper_command_buffer {
    VkPipeline hunt_pipes[64];
    uint32_t hunt_count;
    bool hunt_overflow;
+   bool hunt_skip;   /* draws dropped: bound pipeline is on WRAPPER_FAULT_HUNT_SKIP */
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_command_buffer, vk.base, VkCommandBuffer,
@@ -531,7 +532,8 @@ void wrapper_fault_hunt_graphics(uint32_t count, const VkGraphicsPipelineCreateI
 void wrapper_fault_hunt_compute(uint32_t count, const VkComputePipelineCreateInfo *infos,
                                 const VkPipeline *pipelines);
 void wrapper_fault_hunt_begin(struct wrapper_command_buffer *wcb);
-void wrapper_fault_hunt_bind(struct wrapper_command_buffer *wcb, VkPipeline pipeline);
+void wrapper_fault_hunt_bind(struct wrapper_command_buffer *wcb, VkPipelineBindPoint bind_point,
+                             VkPipeline pipeline);
 void wrapper_fault_hunt_submit_begin(void);
 void wrapper_fault_hunt_submit_end(struct wrapper_queue *queue, VkResult submit_result,
                                    struct wrapper_command_buffer *const *cmdbufs, uint32_t count);

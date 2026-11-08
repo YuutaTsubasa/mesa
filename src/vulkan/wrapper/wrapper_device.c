@@ -4395,6 +4395,8 @@ wrapper_CmdDraw(VkCommandBuffer commandBuffer, uint32_t vertexCount,
                 uint32_t firstInstance)
 {
    VK_FROM_HANDLE(wrapper_command_buffer, wcb, commandBuffer);
+   if (wcb->hunt_skip)
+      return;
    if (wcb->divisor_pipeline &&
        wrapper_divisor_draw(wcb, false, vertexCount, instanceCount, firstVertex, 0,
                             firstInstance))
@@ -4411,6 +4413,8 @@ wrapper_CmdDrawIndexed(VkCommandBuffer commandBuffer, uint32_t indexCount,
                        int32_t vertexOffset, uint32_t firstInstance)
 {
    VK_FROM_HANDLE(wrapper_command_buffer, wcb, commandBuffer);
+   if (wcb->hunt_skip)
+      return;
    if (wcb->divisor_pipeline &&
        wrapper_divisor_draw(wcb, true, indexCount, instanceCount, firstIndex, vertexOffset,
                             firstInstance))
@@ -4427,6 +4431,8 @@ wrapper_CmdDrawIndirect(VkCommandBuffer commandBuffer, VkBuffer buffer,
                         VkDeviceSize offset, uint32_t drawCount, uint32_t stride)
 {
    VK_FROM_HANDLE(wrapper_command_buffer, wcb, commandBuffer);
+   if (wcb->hunt_skip)
+      return;
    bool divisor = wcb->divisor_pipeline && wrapper_divisor_begin_indirect(wcb);
    if (wcb->stride_pipeline && !divisor)
       wrapper_stride_flush(wcb);
@@ -4441,6 +4447,8 @@ wrapper_CmdDrawIndexedIndirect(VkCommandBuffer commandBuffer, VkBuffer buffer,
                                VkDeviceSize offset, uint32_t drawCount, uint32_t stride)
 {
    VK_FROM_HANDLE(wrapper_command_buffer, wcb, commandBuffer);
+   if (wcb->hunt_skip)
+      return;
    bool divisor = wcb->divisor_pipeline && wrapper_divisor_begin_indirect(wcb);
    if (wcb->stride_pipeline && !divisor)
       wrapper_stride_flush(wcb);
@@ -4457,6 +4465,8 @@ wrapper_CmdDrawIndirectCount(VkCommandBuffer commandBuffer, VkBuffer buffer,
                              uint32_t stride)
 {
    VK_FROM_HANDLE(wrapper_command_buffer, wcb, commandBuffer);
+   if (wcb->hunt_skip)
+      return;
    bool divisor = wcb->divisor_pipeline && wrapper_divisor_begin_indirect(wcb);
    if (wcb->stride_pipeline && !divisor)
       wrapper_stride_flush(wcb);
@@ -4473,6 +4483,8 @@ wrapper_CmdDrawIndexedIndirectCount(VkCommandBuffer commandBuffer, VkBuffer buff
                                     uint32_t stride)
 {
    VK_FROM_HANDLE(wrapper_command_buffer, wcb, commandBuffer);
+   if (wcb->hunt_skip)
+      return;
    bool divisor = wcb->divisor_pipeline && wrapper_divisor_begin_indirect(wcb);
    if (wcb->stride_pipeline && !divisor)
       wrapper_stride_flush(wcb);
@@ -4488,6 +4500,8 @@ wrapper_CmdDrawMultiEXT(VkCommandBuffer commandBuffer, uint32_t drawCount,
                         uint32_t firstInstance, uint32_t stride)
 {
    VK_FROM_HANDLE(wrapper_command_buffer, wcb, commandBuffer);
+   if (wcb->hunt_skip)
+      return;
    if (wcb->divisor_pipeline && drawCount) {
       const uint8_t *info = (const uint8_t *)pVertexInfo;
       bool handled = true;
@@ -4512,6 +4526,8 @@ wrapper_CmdDrawMultiIndexedEXT(VkCommandBuffer commandBuffer, uint32_t drawCount
                                uint32_t stride, const int32_t *pVertexOffset)
 {
    VK_FROM_HANDLE(wrapper_command_buffer, wcb, commandBuffer);
+   if (wcb->hunt_skip)
+      return;
    if (wcb->divisor_pipeline && drawCount) {
       const uint8_t *info = (const uint8_t *)pIndexInfo;
       bool handled = true;
@@ -4537,6 +4553,8 @@ wrapper_CmdDrawIndirectByteCountEXT(VkCommandBuffer commandBuffer, uint32_t inst
                                     uint32_t counterOffset, uint32_t vertexStride)
 {
    VK_FROM_HANDLE(wrapper_command_buffer, wcb, commandBuffer);
+   if (wcb->hunt_skip)
+      return;
    if (wcb->stride_pipeline)
       wrapper_stride_flush(wcb);
    wcb->device->dispatch_table.CmdDrawIndirectByteCountEXT(wcb->dispatch_handle,
@@ -5266,7 +5284,7 @@ wrapper_CmdBindPipeline(VkCommandBuffer commandBuffer,
    if ((wcb->device->emulate_vertex_divisor || wcb->device->emulate_zero_divisor) &&
        pipelineBindPoint == VK_PIPELINE_BIND_POINT_GRAPHICS)
       wrapper_divisor_bind(wcb, pipeline);
-   wrapper_fault_hunt_bind(wcb, pipeline);
+   wrapper_fault_hunt_bind(wcb, pipelineBindPoint, pipeline);
    wcb->device->dispatch_table.CmdBindPipeline(wcb->dispatch_handle, pipelineBindPoint,
                                                pipeline);
 }						   						   
