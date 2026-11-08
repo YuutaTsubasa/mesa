@@ -203,6 +203,8 @@ struct wrapper_device {
    uint32_t query_reset_queue_family;
    uint32_t query_reset_queue_index;
    bool query_reset_shared_queue;        /* no spare queue: shares the app's */
+   VkSemaphore hunt_chain;               /* WRAPPER_FAULT_HUNT_WAIT=2 timeline */
+   uint64_t hunt_chain_value;
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_device, vk.base, VkDevice,
@@ -536,6 +538,9 @@ void wrapper_fault_hunt_bind(struct wrapper_command_buffer *wcb, VkPipelineBindP
                              VkPipeline pipeline);
 void wrapper_fault_hunt_submit_begin(void);
 void wrapper_fault_hunt_submit_end(struct wrapper_queue *queue, VkResult submit_result,
-                                   struct wrapper_command_buffer *const *cmdbufs, uint32_t count);
+                                   struct wrapper_command_buffer *const *cmdbufs, uint32_t count,
+                                   bool chained);
+bool wrapper_fault_hunt_gpu_chain(void);
+void *wrapper_fault_hunt_chain2(struct wrapper_device *device, VkSubmitInfo2 *submit);
 
 #endif

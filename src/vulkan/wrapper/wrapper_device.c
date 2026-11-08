@@ -4736,7 +4736,7 @@ wrapper_QueueSubmit(VkQueue _queue, uint32_t submitCount,
       queue->dispatch_handle, submitCount, wrapper_submits, fence);
    if (serialise)
       simple_mtx_unlock(&queue->device->query_reset_mutex);
-   wrapper_fault_hunt_submit_end(queue, result, hunt_cbs, hunt_n);
+   wrapper_fault_hunt_submit_end(queue, result, hunt_cbs, hunt_n, false);
    free(hunt_cbs);
 
    if (result == VK_ERROR_DEVICE_LOST)
@@ -4768,6 +4768,9 @@ wrapper_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
    struct wrapper_command_buffer **hunt_cbs =
       hunt ? malloc(MAX2(hunt_total, 1) * sizeof(*hunt_cbs)) : NULL;
 
+   void *hunt_chain[MAX2(submitCount, 1)];
+   memset(hunt_chain, 0, sizeof(hunt_chain));
+
    wrapper_fault_hunt_submit_begin();
    if (serialise)
       simple_mtx_lock(&queue->device->query_reset_mutex);
@@ -4789,6 +4792,7 @@ wrapper_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
       }
       wrapper_submits[i] = pSubmits[i];
       wrapper_submits[i].pCommandBufferInfos = command_buffers;
+      hunt_chain[i] = wrapper_fault_hunt_chain2(queue->device, &wrapper_submits[i]);
    }
 
    if (queue->device->dispatch_table.QueueSubmit2) {
@@ -4946,8 +4950,11 @@ legacy_submit_cleanup:
    }
    if (serialise)
       simple_mtx_unlock(&queue->device->query_reset_mutex);
-   wrapper_fault_hunt_submit_end(queue, result, hunt_cbs, hunt_n);
+   wrapper_fault_hunt_submit_end(queue, result, hunt_cbs, hunt_n,
+                                 wrapper_fault_hunt_gpu_chain());
    free(hunt_cbs);
+   for (uint32_t i = 0; i < submitCount; i++)
+      free(hunt_chain[i]);
 
    if (result == VK_ERROR_DEVICE_LOST)
       wrapper_log_device_fault(queue->device);
