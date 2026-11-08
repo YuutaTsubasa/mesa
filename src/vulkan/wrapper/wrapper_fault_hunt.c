@@ -151,8 +151,9 @@ wrapper_fault_hunt_init(struct wrapper_device *device)
    pthread_t thread;
    pthread_create(&thread, NULL, hunt_reader, (void *)(intptr_t)fds[0]);
    pthread_detach(thread);
-   fprintf(stderr, "[FAULT_HUNT] enabled: submissions are serialised, timeout %llu ms\n",
-           (unsigned long long)(hunt_timeout_ns / 1000000ull));
+   fprintf(stderr, "[FAULT_HUNT] enabled: submissions are serialised, %s\n",
+           hunt_wait == 2 ? "chained on the GPU with a timeline semaphore (WRAPPER_FAULT_HUNT_WAIT=2)" :
+           hunt_wait ? "each one waited on by the CPU" : "not waited on (WRAPPER_FAULT_HUNT_WAIT=0)");
 }
 
 void
