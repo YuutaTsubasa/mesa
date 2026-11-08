@@ -188,6 +188,40 @@ wrapper_setup_coherent_memory_types(struct wrapper_physical_device *pdevice)
    for (uint32_t i = 0; i < VK_MAX_MEMORY_TYPES; i++)
       pdevice->coherent_memory_type[i] = i;
 
+   for (uint32_t i = 0; i < props->memoryTypeCount; i++)
+      wrapper_diag_append("[MEM] type %u heap %u flags 0x%x
+", i,
+                          props->memoryTypes[i].heapIndex,
+                          props->memoryTypes[i].propertyFlags);
+
+   /* WRAPPER_HOST_UNCACHED=1: back every HOST_CACHED memory type with an
+    * uncached HOST_COHERENT type of the same heap.  Tests whether CPU writes
+    * through cached mappings reach the GPU late on the Mali-G1 driver
+    * (stale descriptors or pointers -> GPU translation faults). */
+   const char *uncached = getenv("WRAPPER_HOST_UNCACHED");
+   if (uncached && atoi(uncached)) {
+      for (uint32_t i = 0; i < props->memoryTypeCount; i++) {
+         VkMemoryPropertyFlags flags = props->memoryTypes[i].propertyFlags;
+         if (!(flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT))
+            continue;
+         for (uint32_t j = 0; j < props->memoryTypeCount; j++) {
+            VkMemoryPropertyFlags other = props->memoryTypes[j].propertyFlags;
+            if (props->memoryTypes[j].heapIndex == props->memoryTypes[i].heapIndex &&
+                (other & host) == host &&
+                !(other & (VK_MEMORY_PROPERTY_HOST_CACHED_BIT |
+                           VK_MEMORY_PROPERTY_PROTECTED_BIT)) &&
+                (other & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ==
+                   (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
+               wrapper_diag_append("[MEM] WRAPPER_HOST_UNCACHED: type %u -> %u
+", i, j);
+               pdevice->coherent_memory_type[i] = j;
+               break;
+            }
+         }
+      }
+      return;
+   }
+
    if (!remap)
       return;
 
