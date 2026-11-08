@@ -5071,6 +5071,7 @@ wrapper_WaitForFences(VkDevice _device,
 
    res = device->dispatch_table.WaitForFences(device->dispatch_handle,
      fenceCount, pFences, waitAll, timeout);
+   wrapper_completion_delay(res);
 
    return res;
 }

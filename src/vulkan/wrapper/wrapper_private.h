@@ -549,5 +549,6 @@ void wrapper_submit_chain_unlock(struct wrapper_queue *queue, VkResult result);
 void *wrapper_submit_chain1(struct wrapper_device *device, VkSubmitInfo *submit);
 void *wrapper_submit_chain2(struct wrapper_device *device, VkSubmitInfo2 *submit);
 VkCommandBuffer wrapper_fill_cb(struct wrapper_queue *queue);
+void wrapper_completion_delay(VkResult result);
 
 #endif

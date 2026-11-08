@@ -24,6 +24,7 @@
 
 #include "util/simple_mtx.h"
 #include "vk_util.h"
+#include "wrapper_entrypoints.h"
 
 static int chain_enabled = -1;
 static int serialize_enabled = -1;
@@ -275,4 +276,65 @@ wrapper_submit_chain1(struct wrapper_device *device, VkSubmitInfo *submit)
    submit->signalSemaphoreCount = signals + 1;
    submit->pSignalSemaphores = ss;
    return mem;
+}
+
+/* WRAPPER_COMPLETION_DELAY_US=N: whenever the application learns that GPU
+ * work has finished (a fence or timeline semaphore wait succeeds, or it
+ * reads a fence status or semaphore value), hold the answer back for N
+ * microseconds.  The GPU keeps running at full speed; only the CPU's
+ * reaction to completion -- recycling command allocators, upload rings and
+ * freed memory -- is pushed later.  Tests whether the Mali driver reports
+ * completion before the GPU has stopped touching the memory. */
+static int completion_delay_us = -1;
+
+static void
+completion_delay(void)
+{
+   if (completion_delay_us == -1) {
+      const char *e = getenv("WRAPPER_COMPLETION_DELAY_US");
+      completion_delay_us = e && atoi(e) > 0 ? atoi(e) : 0;
+      if (completion_delay_us)
+         WRAPPER_LOG(info, "WRAPPER_COMPLETION_DELAY_US=%d", completion_delay_us);
+   }
+   if (completion_delay_us)
+      usleep(completion_delay_us);
+}
+
+void
+wrapper_completion_delay(VkResult result)
+{
+   if (result == VK_SUCCESS)
+      completion_delay();
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+wrapper_WaitSemaphores(VkDevice _device, const VkSemaphoreWaitInfo *pWaitInfo,
+                       uint64_t timeout)
+{
+   VK_FROM_HANDLE(wrapper_device, device, _device);
+   VkResult result = device->dispatch_table.WaitSemaphores(device->dispatch_handle,
+                                                           pWaitInfo, timeout);
+   wrapper_completion_delay(result);
+   return result;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+wrapper_GetSemaphoreCounterValue(VkDevice _device, VkSemaphore semaphore,
+                                 uint64_t *pValue)
+{
+   VK_FROM_HANDLE(wrapper_device, device, _device);
+   /* The value read before the delay was true at least N us ago. */
+   VkResult result = device->dispatch_table.GetSemaphoreCounterValue(
+      device->dispatch_handle, semaphore, pValue);
+   wrapper_completion_delay(result);
+   return result;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+wrapper_GetFenceStatus(VkDevice _device, VkFence fence)
+{
+   VK_FROM_HANDLE(wrapper_device, device, _device);
+   VkResult result = device->dispatch_table.GetFenceStatus(device->dispatch_handle, fence);
+   wrapper_completion_delay(result);
+   return result;
 }
