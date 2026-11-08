@@ -117,6 +117,7 @@ wrapper_files = files(
   'wrapper_set_fold.c',
   'wrapper_dynamic_stride.c',
   'wrapper_divisor.c',
+  'wrapper_fault_hunt.c',
   'wrapper_device_memory.c',
   'wrapper_instance.c',
   'graphicsenv_hook.cpp',

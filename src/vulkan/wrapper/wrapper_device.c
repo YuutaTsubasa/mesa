@@ -1697,6 +1697,7 @@ if (pdf2 && pdf2->features.f) { \
    if (bc6h_hdr && !used_fallback_create)
       WRAPPER_LOG(info, "BCn policy: BC6H stored as ASTC 4x4 HDR");
    wrapper_emit_diag(physical_device, pCreateInfo, VK_SUCCESS);
+   wrapper_fault_hunt_init(device);
 
    *pDevice = wrapper_device_to_handle(device);
 
@@ -3282,6 +3283,7 @@ wrapper_BeginCommandBuffer(VkCommandBuffer commandBuffer,
    wrapper_bcn_transients_free(wcb);
    wrapper_cmd_track_reset(wcb);
    wrapper_divisor_reset(wcb);
+   wrapper_fault_hunt_begin(wcb);
    if (wcb->device->emulate_push_descriptor)
       wrapper_push_pool_reset_all(wcb);
 
@@ -4018,8 +4020,8 @@ wrapper_fold_destroy_modules(struct wrapper_device *device, VkShaderModule *modu
    }
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_CreateComputePipelines(VkDevice _device, VkPipelineCache pipelineCache,
+static VkResult
+wrapper_create_compute_pipelines_impl(VkDevice _device, VkPipelineCache pipelineCache,
                                uint32_t createInfoCount,
                                const VkComputePipelineCreateInfo *pCreateInfos,
                                const VkAllocationCallbacks *pAllocator,
@@ -4078,8 +4080,8 @@ wrapper_CreateComputePipelines(VkDevice _device, VkPipelineCache pipelineCache,
    return result;
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_CreateGraphicsPipelines(VkDevice _device, VkPipelineCache pipelineCache,
+static VkResult
+wrapper_create_graphics_pipelines_impl(VkDevice _device, VkPipelineCache pipelineCache,
                                 uint32_t createInfoCount,
                                 const VkGraphicsPipelineCreateInfo *pCreateInfos,
                                 const VkAllocationCallbacks *pAllocator,
@@ -4331,6 +4333,34 @@ wrapper_CreateGraphicsPipelines(VkDevice _device, VkPipelineCache pipelineCache,
    return result;
 }
 
+VKAPI_ATTR VkResult VKAPI_CALL
+wrapper_CreateComputePipelines(VkDevice _device, VkPipelineCache pipelineCache,
+                               uint32_t createInfoCount,
+                               const VkComputePipelineCreateInfo *pCreateInfos,
+                               const VkAllocationCallbacks *pAllocator,
+                               VkPipeline *pPipelines)
+{
+   VkResult result = wrapper_create_compute_pipelines_impl(_device, pipelineCache,
+      createInfoCount, pCreateInfos, pAllocator, pPipelines);
+   if (result == VK_SUCCESS)
+      wrapper_fault_hunt_compute(createInfoCount, pCreateInfos, pPipelines);
+   return result;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+wrapper_CreateGraphicsPipelines(VkDevice _device, VkPipelineCache pipelineCache,
+                                uint32_t createInfoCount,
+                                const VkGraphicsPipelineCreateInfo *pCreateInfos,
+                                const VkAllocationCallbacks *pAllocator,
+                                VkPipeline *pPipelines)
+{
+   VkResult result = wrapper_create_graphics_pipelines_impl(_device, pipelineCache,
+      createInfoCount, pCreateInfos, pAllocator, pPipelines);
+   if (result == VK_SUCCESS)
+      wrapper_fault_hunt_graphics(createInfoCount, pCreateInfos, pPipelines);
+   return result;
+}
+
 VKAPI_ATTR void VKAPI_CALL
 wrapper_DestroyPipeline(VkDevice _device, VkPipeline pipeline,
                         const VkAllocationCallbacks *pAllocator)
@@ -4524,6 +4554,7 @@ wrapper_ResetCommandBuffer(VkCommandBuffer commandBuffer,
    wrapper_bcn_transients_free(wcb);
    wrapper_cmd_track_reset(wcb);
    wrapper_divisor_reset(wcb);
+   wrapper_fault_hunt_begin(wcb);
    if (wcb->device->emulate_push_descriptor)
       wrapper_push_pool_reset_all(wcb);
    return wcb->device->dispatch_table.ResetCommandBuffer(wcb->dispatch_handle,
@@ -4654,7 +4685,14 @@ wrapper_QueueSubmit(VkQueue _queue, uint32_t submitCount,
    VkResult result;
 
    struct wrapper_fence *wf = get_wrapper_fence_from_handle(queue->device, fence);
+   const bool hunt = wrapper_fault_hunt_enabled();
+   uint32_t hunt_total = 0, hunt_n = 0;
+   for (uint32_t i = 0; hunt && i < submitCount; i++)
+      hunt_total += pSubmits[i].commandBufferCount;
+   struct wrapper_command_buffer **hunt_cbs =
+      hunt ? malloc(MAX2(hunt_total, 1) * sizeof(*hunt_cbs)) : NULL;
 
+   wrapper_fault_hunt_submit_begin();
    if (serialise)
       simple_mtx_lock(&queue->device->query_reset_mutex);
    wrapper_bcn_gpu_submit(queue);
@@ -4669,6 +4707,8 @@ wrapper_QueueSubmit(VkQueue _queue, uint32_t submitCount,
          wcb->fence = wf;
          command_buffers[j] = wcb->dispatch_handle;
          wrapper_bcn_hq_submitted(queue, wcb);
+         if (hunt_cbs)
+            hunt_cbs[hunt_n++] = wcb;
       }
       wrapper_submits[i] = pSubmits[i];
       wrapper_submits[i].pCommandBuffers = command_buffers;
@@ -4678,6 +4718,8 @@ wrapper_QueueSubmit(VkQueue _queue, uint32_t submitCount,
       queue->dispatch_handle, submitCount, wrapper_submits, fence);
    if (serialise)
       simple_mtx_unlock(&queue->device->query_reset_mutex);
+   wrapper_fault_hunt_submit_end(queue, result, hunt_cbs, hunt_n);
+   free(hunt_cbs);
 
    if (result == VK_ERROR_DEVICE_LOST)
       wrapper_log_device_fault(queue->device);
@@ -4701,7 +4743,14 @@ wrapper_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
    VkResult result;
 
    struct wrapper_fence *wf = get_wrapper_fence_from_handle(queue->device, fence);
+   const bool hunt = wrapper_fault_hunt_enabled();
+   uint32_t hunt_total = 0, hunt_n = 0;
+   for (uint32_t i = 0; hunt && i < submitCount; i++)
+      hunt_total += pSubmits[i].commandBufferInfoCount;
+   struct wrapper_command_buffer **hunt_cbs =
+      hunt ? malloc(MAX2(hunt_total, 1) * sizeof(*hunt_cbs)) : NULL;
 
+   wrapper_fault_hunt_submit_begin();
    if (serialise)
       simple_mtx_lock(&queue->device->query_reset_mutex);
    wrapper_bcn_gpu_submit(queue);
@@ -4717,6 +4766,8 @@ wrapper_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
          command_buffers[j] = pSubmits[i].pCommandBufferInfos[j];
          command_buffers[j].commandBuffer = wcb->dispatch_handle;
          wrapper_bcn_hq_submitted(queue, wcb);
+         if (hunt_cbs)
+            hunt_cbs[hunt_n++] = wcb;
       }
       wrapper_submits[i] = pSubmits[i];
       wrapper_submits[i].pCommandBufferInfos = command_buffers;
@@ -4877,6 +4928,8 @@ legacy_submit_cleanup:
    }
    if (serialise)
       simple_mtx_unlock(&queue->device->query_reset_mutex);
+   wrapper_fault_hunt_submit_end(queue, result, hunt_cbs, hunt_n);
+   free(hunt_cbs);
 
    if (result == VK_ERROR_DEVICE_LOST)
       wrapper_log_device_fault(queue->device);
@@ -5097,6 +5150,7 @@ wrapper_CreateShaderModule(VkDevice _device,
 						   VkShaderModule *pShaderModule)
 {
    VK_FROM_HANDLE(wrapper_device, device, _device);
+   const VkShaderModuleCreateInfo *app_info = pCreateInfo;
 
    bcn_scan_shader(pCreateInfo->pCode, pCreateInfo->codeSize);
 
@@ -5127,6 +5181,8 @@ wrapper_CreateShaderModule(VkDevice _device,
    if (result == VK_SUCCESS && wrapper_tracks_shader_code(device))
       wrapper_stride_note_module(device, *pShaderModule, create_info.pCode,
                                  create_info.codeSize);
+   if (result == VK_SUCCESS)
+      wrapper_fault_hunt_module(*pShaderModule, app_info);
    free(patched);
    free(lowered);
    free(int64_code);
@@ -5210,6 +5266,7 @@ wrapper_CmdBindPipeline(VkCommandBuffer commandBuffer,
    if ((wcb->device->emulate_vertex_divisor || wcb->device->emulate_zero_divisor) &&
        pipelineBindPoint == VK_PIPELINE_BIND_POINT_GRAPHICS)
       wrapper_divisor_bind(wcb, pipeline);
+   wrapper_fault_hunt_bind(wcb, pipeline);
    wcb->device->dispatch_table.CmdBindPipeline(wcb->dispatch_handle, pipelineBindPoint,
                                                pipeline);
 }						   						   
