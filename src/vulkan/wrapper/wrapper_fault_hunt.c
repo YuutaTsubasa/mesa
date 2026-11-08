@@ -48,6 +48,7 @@ struct hunt_pipeline {
 };
 
 static int hunt_enabled = -1;
+static bool hunt_wait = true;
 static uint64_t hunt_timeout_ns;
 static simple_mtx_t hunt_mtx = SIMPLE_MTX_INITIALIZER;   /* tables */
 static simple_mtx_t submit_mtx = SIMPLE_MTX_INITIALIZER; /* submissions */
@@ -66,6 +67,8 @@ wrapper_fault_hunt_enabled(void)
       hunt_enabled = e && atoi(e);
       const char *ms = getenv("WRAPPER_FAULT_HUNT_MS");
       hunt_timeout_ns = (uint64_t)(ms && atoi(ms) > 0 ? atoi(ms) : 2000) * 1000000ull;
+      const char *w = getenv("WRAPPER_FAULT_HUNT_WAIT");
+      hunt_wait = !w || atoi(w);
    }
    return hunt_enabled;
 }
@@ -369,7 +372,7 @@ wrapper_fault_hunt_submit_end(struct wrapper_queue *queue, VkResult submit_resul
    uint64_t seq = ++submit_seq;
    bool timed_out = false;
 
-   if (submit_result == VK_SUCCESS) {
+   if (submit_result == VK_SUCCESS && hunt_wait) {
       VkFenceCreateInfo fci = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
       VkFence fence = VK_NULL_HANDLE;
       if (device->dispatch_table.CreateFence(device->dispatch_handle, &fci, NULL, &fence) == VK_SUCCESS) {
