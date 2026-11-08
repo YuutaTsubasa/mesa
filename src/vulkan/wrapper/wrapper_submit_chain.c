@@ -20,12 +20,32 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "util/simple_mtx.h"
 #include "vk_util.h"
 
 static int chain_enabled = -1;
+static int serialize_enabled = -1;
+static unsigned serialize_delay_us;
 static simple_mtx_t chain_mtx = SIMPLE_MTX_INITIALIZER;
+
+/* WRAPPER_SERIALIZE_SUBMITS=1: after each submission the CPU waits until the
+ * GPU has finished it (plus WRAPPER_SERIALIZE_DELAY_US) before anything else
+ * is submitted or the call returns.  Unlike chaining, this also keeps the
+ * application from reusing memory the GPU may still be writing when the
+ * driver reports completion early. */
+static bool
+serialize_on(void)
+{
+   if (serialize_enabled == -1) {
+      const char *e = getenv("WRAPPER_SERIALIZE_SUBMITS");
+      serialize_enabled = e && atoi(e);
+      const char *d = getenv("WRAPPER_SERIALIZE_DELAY_US");
+      serialize_delay_us = d && atoi(d) > 0 ? atoi(d) : 0;
+   }
+   return serialize_enabled;
+}
 
 bool
 wrapper_submit_chain_enabled(void)
@@ -40,14 +60,27 @@ wrapper_submit_chain_enabled(void)
 void
 wrapper_submit_chain_lock(void)
 {
-   if (wrapper_submit_chain_enabled())
+   if (wrapper_submit_chain_enabled() || serialize_on())
       simple_mtx_lock(&chain_mtx);
 }
 
 void
-wrapper_submit_chain_unlock(void)
+wrapper_submit_chain_unlock(struct wrapper_queue *queue, VkResult result)
 {
-   if (wrapper_submit_chain_enabled())
+   if (serialize_on() && result == VK_SUCCESS) {
+      struct wrapper_device *device = queue->device;
+      VkFenceCreateInfo fci = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+      VkFence fence = VK_NULL_HANDLE;
+      if (device->dispatch_table.CreateFence(device->dispatch_handle, &fci, NULL, &fence) == VK_SUCCESS) {
+         if (device->dispatch_table.QueueSubmit(queue->dispatch_handle, 0, NULL, fence) == VK_SUCCESS)
+            device->dispatch_table.WaitForFences(device->dispatch_handle, 1, &fence, VK_TRUE,
+                                                 UINT64_MAX);
+         device->dispatch_table.DestroyFence(device->dispatch_handle, fence, NULL);
+      }
+      if (serialize_delay_us)
+         usleep(serialize_delay_us);
+   }
+   if (wrapper_submit_chain_enabled() || serialize_on())
       simple_mtx_unlock(&chain_mtx);
 }
 

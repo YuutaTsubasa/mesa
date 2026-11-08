@@ -4741,7 +4741,7 @@ wrapper_QueueSubmit(VkQueue _queue, uint32_t submitCount,
       queue->dispatch_handle, submitCount, wrapper_submits, fence);
    if (serialise)
       simple_mtx_unlock(&queue->device->query_reset_mutex);
-   wrapper_submit_chain_unlock();
+   wrapper_submit_chain_unlock(queue, result);
    for (uint32_t i = 0; i < submitCount; i++)
       free(chain_mem[i]);
    wrapper_fault_hunt_submit_end(queue, result, hunt_cbs, hunt_n);
@@ -4959,7 +4959,7 @@ legacy_submit_cleanup:
    }
    if (serialise)
       simple_mtx_unlock(&queue->device->query_reset_mutex);
-   wrapper_submit_chain_unlock();
+   wrapper_submit_chain_unlock(queue, result);
    wrapper_fault_hunt_submit_end(queue, result, hunt_cbs, hunt_n);
    free(hunt_cbs);
    for (uint32_t i = 0; i < submitCount; i++)

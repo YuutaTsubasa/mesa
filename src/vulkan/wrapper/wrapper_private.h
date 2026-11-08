@@ -543,7 +543,7 @@ int wrapper_fault_hunt_wait_mode(void);
 
 bool wrapper_submit_chain_enabled(void);
 void wrapper_submit_chain_lock(void);
-void wrapper_submit_chain_unlock(void);
+void wrapper_submit_chain_unlock(struct wrapper_queue *queue, VkResult result);
 void *wrapper_submit_chain1(struct wrapper_device *device, VkSubmitInfo *submit);
 void *wrapper_submit_chain2(struct wrapper_device *device, VkSubmitInfo2 *submit);
 
