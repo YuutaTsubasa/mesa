@@ -189,8 +189,7 @@ wrapper_setup_coherent_memory_types(struct wrapper_physical_device *pdevice)
       pdevice->coherent_memory_type[i] = i;
 
    for (uint32_t i = 0; i < props->memoryTypeCount; i++)
-      wrapper_diag_append("[MEM] type %u heap %u flags 0x%x
-", i,
+      wrapper_diag_append("[MEM] type %u heap %u flags 0x%x\n", i,
                           props->memoryTypes[i].heapIndex,
                           props->memoryTypes[i].propertyFlags);
 
@@ -212,8 +211,7 @@ wrapper_setup_coherent_memory_types(struct wrapper_physical_device *pdevice)
                            VK_MEMORY_PROPERTY_PROTECTED_BIT)) &&
                 (other & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ==
                    (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
-               wrapper_diag_append("[MEM] WRAPPER_HOST_UNCACHED: type %u -> %u
-", i, j);
+               wrapper_diag_append("[MEM] WRAPPER_HOST_UNCACHED: type %u -> %u\n", i, j);
                pdevice->coherent_memory_type[i] = j;
                break;
             }
