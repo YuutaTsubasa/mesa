@@ -3514,6 +3514,7 @@ wrapper_CmdPipelineBarrier2(VkCommandBuffer commandBuffer,
    }
 
    wrapper_pipeline_barrier2(wcb, pDependencyInfo);
+   wrapper_full_barrier(wcb, 1);
    wrapper_bcn_hq_barriers2(wcb, pDependencyInfo);
    wrapper_cap_free(capped, stack);
 }
@@ -3887,6 +3888,7 @@ wrapper_CmdEndRendering(VkCommandBuffer commandBuffer)
    else if (wcb->dynamic_rendering_active)
       wcb->device->dispatch_table.CmdEndRenderPass(wcb->dispatch_handle);
    wcb->dynamic_rendering_active = false;
+   wrapper_full_barrier(wcb, 2);
 }
 
 static bool
@@ -5972,6 +5974,7 @@ wrapper_CmdPipelineBarrier(VkCommandBuffer commandBuffer,
       dstStageMask, dependencyFlags, memoryBarrierCount, pMemoryBarriers,
       bufferMemoryBarrierCount, pBufferMemoryBarriers, imageMemoryBarrierCount,
       pImageMemoryBarriers);
+   wrapper_full_barrier(wcb, 1);
    wrapper_bcn_hq_barriers(wcb, imageMemoryBarrierCount, pImageMemoryBarriers);
    wrapper_cap_free(capped, stack);
 }
@@ -6004,6 +6007,7 @@ wrapper_CmdWaitEvents(VkCommandBuffer commandBuffer, uint32_t eventCount,
       pEvents, srcStageMask, dstStageMask, memoryBarrierCount, pMemoryBarriers,
       bufferMemoryBarrierCount, pBufferMemoryBarriers, imageMemoryBarrierCount,
       pImageMemoryBarriers);
+   wrapper_full_barrier(wcb, 1);
    wrapper_bcn_hq_barriers(wcb, imageMemoryBarrierCount, pImageMemoryBarriers);
    wrapper_cap_free(capped, stack);
 }
@@ -6040,6 +6044,7 @@ wrapper_CmdWaitEvents2(VkCommandBuffer commandBuffer, uint32_t eventCount,
 
    device->dispatch_table.CmdWaitEvents2(wcb->dispatch_handle, eventCount,
       pEvents, pDependencyInfos);
+   wrapper_full_barrier(wcb, 1);
    for (uint32_t i = 0; i < eventCount; i++)
       wrapper_bcn_hq_barriers2(wcb, &pDependencyInfos[i]);
    free(deps);

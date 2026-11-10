@@ -543,6 +543,8 @@ void wrapper_fault_hunt_submit_end(struct wrapper_queue *queue, VkResult submit_
                                    struct wrapper_command_buffer *const *cmdbufs, uint32_t count);
 int wrapper_fault_hunt_wait_mode(void);
 
+int wrapper_full_barrier_mode(void);
+void wrapper_full_barrier(struct wrapper_command_buffer *wcb, int min_mode);
 bool wrapper_submit_chain_enabled(void);
 void wrapper_submit_chain_lock(void);
 void wrapper_submit_chain_unlock(struct wrapper_queue *queue, VkResult result);
